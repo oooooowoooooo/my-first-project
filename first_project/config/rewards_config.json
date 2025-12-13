@@ -1,0 +1,38 @@
+{
+  "punishments": {
+    "miss_required_task": {
+      "points": -10,
+      "message": "未完成必做任务，扣除10分！"
+    },
+    "exceed_calorie_limit": {
+      "points": -5,
+      "message": "卡路里摄入超标，扣除5分！"
+    },
+    "multiple_misses": {
+      "threshold": 3,
+      "points": -20,
+      "message": "单日未完成任务数超过3个，额外扣除20分！"
+    }
+  },
+  "rewards": {
+    "complete_all_tasks": {
+      "points": 20,
+      "message": "完成所有任务，奖励20分！"
+    },
+    "calorie_within_limit": {
+      "points": 10,
+      "message": "卡路里摄入达标，奖励10分！"
+    },
+    "streak_3_days": {
+      "points": 30,
+      "message": "连续3天完成所有任务，奖励30分！"
+    }
+  },
+  "level_system": {
+    "1": {"min_points": 0, "max_points": 50, "name": "新手"},
+    "2": {"min_points": 51, "max_points": 150, "name": "进阶者"},
+    "3": {"min_points": 151, "max_points": 300, "name": "自律达人"},
+    "4": {"min_points": 301, "max_points": 500, "name": "超级自律者"},
+    "5": {"min_points": 501, "max_points": 1000, "name": "自律大师"}
+  }
+}

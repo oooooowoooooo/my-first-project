@@ -1,0 +1,64 @@
+{
+  "daily_tasks": [
+    {
+      "task_id": 1,
+      "task_name": "早餐卡路里记录",
+      "task_type": "calorie",
+      "reminder_times": ["08:00", "08:30", "09:00"],
+      "required": true,
+      "target_value": null,
+      "description": "记录早餐摄入的卡路里"
+    },
+    {
+      "task_id": 2,
+      "task_name": "午餐卡路里记录",
+      "task_type": "calorie",
+      "reminder_times": ["12:00", "12:30", "13:00"],
+      "required": true,
+      "target_value": null,
+      "description": "记录午餐摄入的卡路里"
+    },
+    {
+      "task_id": 3,
+      "task_name": "晚餐卡路里记录",
+      "task_type": "calorie",
+      "reminder_times": ["18:00", "18:30", "19:00"],
+      "required": true,
+      "target_value": null,
+      "description": "记录晚餐摄入的卡路里"
+    },
+    {
+      "task_id": 4,
+      "task_name": "上传博客",
+      "task_type": "routine",
+      "reminder_times": ["20:00", "21:00", "22:00"],
+      "required": true,
+      "target_value": 1,
+      "description": "每天至少上传1篇博客"
+    },
+    {
+      "task_id": 5,
+      "task_name": "学习新知识",
+      "task_type": "routine",
+      "reminder_times": ["19:00", "20:00", "21:00"],
+      "required": true,
+      "target_value": 120,
+      "description": "每天至少学习120分钟"
+    },
+    {
+      "task_id": 6,
+      "task_name": "读书",
+      "task_type": "routine",
+      "reminder_times": ["21:00", "21:30", "22:00"],
+      "required": true,
+      "target_value": 30,
+      "description": "每天至少读书30分钟"
+    }
+  ],
+  "calorie_limits": {
+    "breakfast": 500,
+    "lunch": 700,
+    "dinner": 600,
+    "daily_total": 1800
+  }
+}
