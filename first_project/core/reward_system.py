@@ -7,248 +7,246 @@ from utils.time_utils import get_date_str, get_past_n_days
 
 class RewardSystem:
     def __init__(self, reward_config="config/rewards_config.json", task_config="config/tasks_config.json"):
-        # 加载配置（容错处理）
-        self.reward_config = {"punishments": {}, "rewards": {}, "level_system": {}}
-        self.task_config = {"daily_tasks": []}
-
-        try:
-            with open(reward_config, "r", encoding="utf-8") as f:
-                self.reward_config = json.load(f)
-        except Exception as e:
-            logger.error(f"加载奖惩配置失败：{e}")
-
-        try:
-            with open(task_config, "r", encoding="utf-8") as f:
-                self.task_config = json.load(f)
-        except Exception as e:
-            logger.error(f"加载任务配置失败：{e}")
+        # 加载配置
+        with open(reward_config, "r", encoding="utf-8") as f:
+            self.reward_config = json.load(f)
+        with open(task_config, "r", encoding="utf-8") as f:
+            self.task_config = json.load(f)
 
         self.records_path = "data/task_records.json"
         self._init_records_file()
 
     def _init_records_file(self):
-        """初始化记录文件"""
-        try:
-            if not os.path.exists("data"):
-                os.makedirs("data")
-            if not os.path.exists(self.records_path):
-                with open(self.records_path, "w", encoding="utf-8") as f:
-                    json.dump({}, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            logger.error(f"初始化记录文件失败：{e}")
+        """初始化记录文件，确保结构完整"""
+        if not os.path.exists("data"):
+            os.makedirs("data")
+        if not os.path.exists(self.records_path):
+            # 初始化完整的记录结构
+            init_data = {
+                "user_info": {"total_points": 0, "current_level": "1", "streak_days": 0},
+                "daily_records": {}
+            }
+            with open(self.records_path, "w", encoding="utf-8") as f:
+                json.dump(init_data, f, ensure_ascii=False, indent=2)
 
-    def update_points(self, date, points, reason):
+    def _get_records(self):
+        """读取记录（统一方法，确保数据结构正确）"""
+        with open(self.records_path, "r", encoding="utf-8") as f:
+            records = json.load(f)
+
+        # 兼容旧数据结构
+        if "user_info" not in records:
+            records["user_info"] = {"total_points": 0, "current_level": "1", "streak_days": 0}
+        if "daily_records" not in records:
+            records["daily_records"] = {}
+
+        return records
+
+    def _save_records(self, records):
+        """保存记录（原子操作）"""
+        temp_path = f"{self.records_path}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(records, f, ensure_ascii=False, indent=2)
+        os.replace(temp_path, self.records_path)
+
+    def update_points(self, points, reason, date=None):
         """
-        更新积分（原子操作）
-        :param date: 日期
+        真正生效的积分更新：更新总积分+当日积分
         :param points: 积分值（可正可负）
-        :param reason: 原因
-        :return: bool - 是否成功
+        :param reason: 变动原因
+        :param date: 日期（默认今日）
         """
-        try:
-            # 读取现有记录
-            records = {}
-            try:
-                with open(self.records_path, "r", encoding="utf-8") as f:
-                    records = json.load(f)
-            except:
-                records = {}
-
-            # 初始化当日记录
-            if date not in records:
-                records[date] = {"calories": {}, "tasks": {}, "points": 0}
-
-            # 更新积分
-            old_points = records[date]["points"]
-            records[date]["points"] += points
-            new_points = records[date]["points"]
-
-            logger.info(f"积分更新：{old_points} + {points} = {new_points} | 原因：{reason}")
-
-            # 原子保存（避免文件损坏）
-            temp_path = f"{self.records_path}.tmp"
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(records, f, ensure_ascii=False, indent=2)
-            os.replace(temp_path, self.records_path)
-
-            return True
-        except Exception as e:
-            logger.error(f"更新积分失败：{e}", exc_info=True)
-            return False
-
-    def check_daily_rewards(self, date=None):
-        """检查并执行当日奖惩"""
         if date is None:
             date = get_date_str()
 
-        # 读取记录
-        records = {}
         try:
-            with open(self.records_path, "r", encoding="utf-8") as f:
-                records = json.load(f)
+            records = self._get_records()
+
+            # 初始化当日记录
+            if date not in records["daily_records"]:
+                records["daily_records"][date] = {
+                    "calories": {},
+                    "tasks": {},
+                    "points_change": [],
+                    "daily_points": 0
+                }
+
+            # 记录当日积分变动
+            records["daily_records"][date]["points_change"].append({
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "points": points,
+                "reason": reason
+            })
+            # 更新当日总积分
+            records["daily_records"][date]["daily_points"] += points
+            # 更新用户总积分
+            records["user_info"]["total_points"] += points
+
+            # 保存记录
+            self._save_records(records)
+
+            logger.info(f"积分更新：总积分 {records['user_info']['total_points']} | 当日变动 {points} | 原因：{reason}")
+            return True
         except Exception as e:
-            logger.error(f"读取记录失败：{e}")
+            logger.error(f"更新积分失败：{e}")
+            return False
+
+    def check_daily_rewards(self, date=None):
+        """真正生效的每日奖惩结算"""
+        if date is None:
+            date = get_date_str()
+
+        records = self._get_records()
+        if date not in records["daily_records"]:
+            logger.warning(f"{date} 无任务记录，跳过结算")
             return
 
-        if date not in records:
-            logger.info(f"无{date}的记录，跳过奖惩结算")
-            return
-
-        # 1. 检查未完成必做任务惩罚
-        task_records = records[date]["tasks"]
-        required_tasks = [t for t in self.task_config["daily_tasks"] if t.get("required", False)]
+        # 1. 获取当日任务完成情况
+        task_records = records["daily_records"][date]["tasks"]
+        required_tasks = [t for t in self.task_config["daily_tasks"] if t["required"]]
         missed_tasks = []
 
+        # 检查未完成的必做任务
         for task in required_tasks:
-            task_id = task["task_id"]
-            if task_id not in task_records or not task_records[task_id].get("completed", False):
+            task_id = str(task["task_id"])
+            if task_id not in task_records or not task_records[task_id]["completed"]:
                 missed_tasks.append(task["task_name"])
-                # 执行惩罚
+                # 未完成惩罚（真正扣积分）
                 self.update_points(
-                    date,
                     self.reward_config["punishments"]["miss_required_task"]["points"],
                     self.reward_config["punishments"]["miss_required_task"]["message"]
                 )
 
         # 2. 多个未完成任务额外惩罚
-        threshold = self.reward_config["punishments"]["multiple_misses"]["threshold"]
-        if len(missed_tasks) >= threshold:
+        if len(missed_tasks) >= self.reward_config["punishments"]["multiple_misses"]["threshold"]:
             self.update_points(
-                date,
                 self.reward_config["punishments"]["multiple_misses"]["points"],
                 self.reward_config["punishments"]["multiple_misses"]["message"]
             )
 
         # 3. 卡路里超标惩罚
-        try:
-            from core.calorie_tracker import CalorieTracker
-            calorie_tracker = CalorieTracker()
-            calorie_summary = calorie_tracker.get_daily_calorie_summary(date)
-            if not calorie_summary["within_limit"] and calorie_summary["total"] > 0:
-                self.update_points(
-                    date,
-                    self.reward_config["punishments"]["exceed_calorie_limit"]["points"],
-                    self.reward_config["punishments"]["exceed_calorie_limit"]["message"]
-                )
-        except Exception as e:
-            logger.error(f"检查卡路里奖惩失败：{e}")
+        from core.calorie_tracker import CalorieTracker
+        calorie_tracker = CalorieTracker()
+        calorie_summary = calorie_tracker.get_daily_calorie_summary(date)
+        if not calorie_summary["within_limit"] and calorie_summary["total"] > 0:
+            self.update_points(
+                self.reward_config["punishments"]["exceed_calorie_limit"]["points"],
+                self.reward_config["punishments"]["exceed_calorie_limit"]["message"]
+            )
 
         # 4. 完成所有任务奖励
         if len(missed_tasks) == 0 and len(required_tasks) > 0:
             self.update_points(
-                date,
                 self.reward_config["rewards"]["complete_all_tasks"]["points"],
                 self.reward_config["rewards"]["complete_all_tasks"]["message"]
             )
 
         # 5. 卡路里达标奖励
-        try:
-            if calorie_summary["within_limit"] and calorie_summary["total"] > 0:
-                self.update_points(
-                    date,
-                    self.reward_config["rewards"]["calorie_within_limit"]["points"],
-                    self.reward_config["rewards"]["calorie_within_limit"]["message"]
-                )
-        except:
-            pass
+        if calorie_summary["within_limit"] and calorie_summary["total"] > 0:
+            self.update_points(
+                self.reward_config["rewards"]["calorie_within_limit"]["points"],
+                self.reward_config["rewards"]["calorie_within_limit"]["message"]
+            )
 
         # 6. 连续完成奖励
         self.check_streak_rewards(date)
 
+        # 7. 更新用户等级
+        self.update_user_level()
+
     def check_streak_rewards(self, date=None):
-        """检查连续完成奖励"""
+        """修复连续天数统计逻辑"""
         if date is None:
             date = get_date_str()
 
+        records = self._get_records()
         # 获取过去3天日期
         past_3_days = get_past_n_days(3)
-
-        # 检查每天是否完成所有任务
         streak_count = 0
-        try:
-            with open(self.records_path, "r", encoding="utf-8") as f:
-                records = json.load(f)
 
-            required_tasks = [t for t in self.task_config["daily_tasks"] if t.get("required", False)]
-            if len(required_tasks) == 0:
-                return
+        # 统计连续完成天数
+        for day in past_3_days:
+            if day not in records["daily_records"]:
+                break
 
-            for day in past_3_days:
-                if day not in records:
-                    continue
+            day_tasks = records["daily_records"][day]["tasks"]
+            required_tasks = [t for t in self.task_config["daily_tasks"] if t["required"]]
+            all_completed = True
 
-                # 检查当日是否完成所有必做任务
-                task_records = records[day]["tasks"]
-                all_completed = True
-                for task in required_tasks:
-                    if task["task_id"] not in task_records or not task_records[task["task_id"]]["completed"]:
-                        all_completed = False
-                        break
+            for task in required_tasks:
+                task_id = str(task["task_id"])
+                if task_id not in day_tasks or not day_tasks[task_id]["completed"]:
+                    all_completed = False
+                    break
 
-                if all_completed:
-                    streak_count += 1
-                else:
-                    break  # 连续中断
+            if all_completed:
+                streak_count += 1
+            else:
+                break
 
-            # 连续3天完成奖励
-            if streak_count >= 3:
-                self.update_points(
-                    date,
-                    self.reward_config["rewards"]["streak_3_days"]["points"],
-                    self.reward_config["rewards"]["streak_3_days"]["message"]
-                )
-                logger.info(f"连续{streak_count}天完成任务，发放奖励")
-        except Exception as e:
-            logger.error(f"检查连续奖励失败：{e}")
+        # 更新连续天数
+        records["user_info"]["streak_days"] = streak_count
+        self._save_records(records)
 
-    def get_user_level(self, date=None):
-        """获取用户当前等级（容错处理）"""
-        # 计算总积分
-        total_points = 0
-        try:
-            with open(self.records_path, "r", encoding="utf-8") as f:
-                records = json.load(f)
+        # 连续3天奖励
+        if streak_count >= 3:
+            self.update_points(
+                self.reward_config["rewards"]["streak_3_days"]["points"],
+                self.reward_config["rewards"]["streak_3_days"]["message"]
+            )
 
-            for day in records:
-                total_points += records[day].get("points", 0)
-        except Exception as e:
-            logger.error(f"计算总积分失败：{e}")
-            total_points = 0
+    def update_user_level(self):
+        """根据总积分更新用户等级（真正生效）"""
+        records = self._get_records()
+        total_points = records["user_info"]["total_points"]
+        level_system = self.reward_config["level_system"]
 
-        # 匹配等级（容错处理）
-        level_system = self.reward_config.get("level_system", {})
-        if not level_system:
-            # 使用默认等级
-            level_system = {
-                "1": {"min_points": 0, "max_points": 50, "name": "新手"},
-                "2": {"min_points": 51, "max_points": 150, "name": "进阶者"},
-                "3": {"min_points": 151, "max_points": 300, "name": "自律达人"},
-                "4": {"min_points": 301, "max_points": 500, "name": "超级自律者"},
-                "5": {"min_points": 501, "max_points": 1000, "name": "自律大师"}
-            }
-
-        # 查找当前等级
+        # 匹配等级
         current_level = "1"
-        current_level_info = level_system["1"]
-
         for level_id, level_info in level_system.items():
             if level_info["min_points"] <= total_points <= level_info["max_points"]:
                 current_level = level_id
-                current_level_info = level_info
 
-        # 计算下一等级
+        # 更新等级
+        records["user_info"]["current_level"] = current_level
+        self._save_records(records)
+        return current_level
+
+    def get_user_level(self):
+        """获取用户当前等级（含总积分）"""
+        records = self._get_records()
+        total_points = records["user_info"]["total_points"]
+        current_level = records["user_info"]["current_level"]
+        level_system = self.reward_config["level_system"]
+
+        # 获取等级详情
+        level_info = level_system.get(current_level, level_system["1"])
         level_ids = sorted([int(k) for k in level_system.keys()])
         current_level_int = int(current_level)
-        next_level_idx = level_ids.index(current_level_int) + 1
 
-        if next_level_idx < len(level_ids):
-            next_level = str(level_ids[next_level_idx])
-        else:
-            next_level = "最高等级"
+        # 计算下一等级
+        next_level = "最高等级"
+        if current_level_int < max(level_ids):
+            next_level = str(current_level_int + 1)
 
         return {
             "level": current_level,
-            "name": current_level_info["name"],
+            "name": level_info["name"],
             "total_points": total_points,
+            "streak_days": records["user_info"]["streak_days"],
             "next_level": next_level
+        }
+
+    def get_daily_points(self, date=None):
+        """获取当日积分变动详情"""
+        if date is None:
+            date = get_date_str()
+
+        records = self._get_records()
+        if date not in records["daily_records"]:
+            return {"daily_points": 0, "points_change": []}
+
+        return {
+            "daily_points": records["daily_records"][date]["daily_points"],
+            "points_change": records["daily_records"][date]["points_change"]
         }
